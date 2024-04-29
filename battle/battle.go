@@ -9,8 +9,8 @@ import (
 )
 
 var battleQuotes = map[string]string{
-	"attackhit":       "%s attacked with %s for %d damage.",
-	"attackcritical":  "Critical hit! %s attacked with %s for %d damage.",
+	"attackhit":       "%s attacked with %s for %d %s damage.",
+	"attackcritical":  "Critical hit! %s attacked with %s for %d %s damage.",
 	"attackmiss":      "%s attacked with %s but missed.",
 	"attackextrahit":  "%s's attack did %d extra %s damage.",
 	"attackextrafail": "%s's attack do extra %s damage but %s is immune!",
@@ -50,6 +50,7 @@ type BattleData struct {
 	BattleState string
 	Winner      string
 	BattleText  []string
+	Spells      map[string]string
 }
 
 func NewBattle(player, monster data.Character) *Battle {
@@ -85,6 +86,11 @@ func (b *Battle) BattleTurn(action []string) {
 }
 
 func (b *Battle) GetBattleData() BattleData {
+	spells := make(map[string]string)
+	for _, spell := range b.Player.Spells {
+		k := strconv.Itoa(spell.Id)
+		spells[k] = spell.Name
+	}
 	return BattleData{
 		PlayerName:  b.Player.Name,
 		PlayerHP:    strconv.Itoa(b.Player.CurrentHp),
@@ -93,33 +99,37 @@ func (b *Battle) GetBattleData() BattleData {
 		BattleState: strconv.Itoa(int(b.State)),
 		Winner:      b.Winner,
 		BattleText:  b.BattleText,
+		Spells:      spells,
 	}
 }
 
 func (b *Battle) perTurnChecks(char *data.Character, is_player bool) {
 	if len(char.Conditions) > 0 {
 		for i := len(char.Conditions) - 1; i >= 0; i-- {
-			c := char.Conditions[i]
-			c.Duration--
-			if c.Duration == 0 {
-				char.Conditions = append(char.Conditions[:i], char.Conditions[i+1:]...)
-				b.addText(fmt.Sprintf(c.Condition.EndQuote, char.Name))
+			char.Conditions[i].Duration--
+			if char.Conditions[i].Duration <= 0 {
+				b.addText(fmt.Sprintf(char.Conditions[i].Condition.EndQuote, char.Name))
+				if len(char.Conditions) == 1 {
+					char.Conditions = []data.ActiveCondition{}
+				} else {
+					char.Conditions = append(char.Conditions[:i], char.Conditions[i+1:]...)
+				}
 			} else {
-				switch c.Condition.Type {
+				switch char.Conditions[i].Condition.Type {
 				case data.NoActions, data.NoOffensiveAction, data.NoSpells:
-					b.addText(fmt.Sprintf(c.Condition.ActiveQuote, char.Name))
+					b.addText(fmt.Sprintf(char.Conditions[i].Condition.ActiveQuote, char.Name))
 				case data.DoDamage:
-					if hasDamageImmunity(char.Immunities, c.Condition.DamageType) {
-						b.addText(fmt.Sprintf(c.Condition.FailQuote, char.Name))
+					if hasDamageImmunity(char.Immunities, char.Conditions[i].Condition.DamageType) {
+						b.addText(fmt.Sprintf(char.Conditions[i].Condition.FailQuote, char.Name))
 					} else {
-						resistance := hasDamageResistance(char.Resistances, c.Condition.DamageType)
+						resistance := hasDamageResistance(char.Resistances, char.Conditions[i].Condition.DamageType)
 						damage := roll(1, 3)
-						if hasDamageVulnerability(char.Vulnerabilities, c.Condition.DamageType) {
+						if hasDamageVulnerability(char.Vulnerabilities, char.Conditions[i].Condition.DamageType) {
 							damage += roll(1, 3)
 						}
 						damage = max((damage - resistance), 0)
 						char.CurrentHp -= damage
-						b.addText(fmt.Sprintf(c.Condition.ActiveQuote, char.Name, damage))
+						b.addText(fmt.Sprintf(char.Conditions[i].Condition.ActiveQuote, char.Name, damage))
 						b.checkDeath(char, is_player)
 					}
 				}
@@ -189,10 +199,21 @@ func (b *Battle) spellTurn(conditionCheck ConditionCheck, spell data.Spell, atta
 	if !conditionCheck.IsFree || !conditionCheck.CanCast {
 		return
 	}
+
+	if ok, i := hasEffectOn(defender.Effects, data.Counterspell); ok {
+		if spell.Type == data.DirectDamage ||
+			spell.Type == data.CauseCondition ||
+			spell.Type == data.Drain {
+			defender.Effects = append(defender.Effects[:i], defender.Effects[i+1:]...)
+			b.addText(fmt.Sprintf("%s cast a spell, but it got counterspelled by %s!", attacker.Name, defender.Name))
+			return
+		}
+	}
+
 	switch spell.Type {
 	case data.Healing:
 		if attacker.CurrentHp == attacker.MaxHp {
-			b.addText(fmt.Sprintf(battleQuotes["missquote"], attacker.Name))
+			b.addText(fmt.Sprintf(spell.MissQuote, attacker.Name))
 		} else {
 			heal := roll(1, 6) + spell.Variable + attacker.Power
 			new_hp := attacker.CurrentHp + heal
@@ -201,7 +222,7 @@ func (b *Battle) spellTurn(conditionCheck ConditionCheck, spell data.Spell, atta
 				new_hp = attacker.CurrentHp + heal
 			}
 			attacker.CurrentHp = new_hp
-			b.addText(fmt.Sprintf(battleQuotes["hitquote"], attacker.Name, heal))
+			b.addText(fmt.Sprintf(spell.HitQuote, attacker.Name, heal))
 		}
 	case data.CauseCondition:
 		if conditionCheck.IsCharmed {
@@ -280,7 +301,7 @@ func (b *Battle) spellTurn(conditionCheck ConditionCheck, spell data.Spell, atta
 		chance := check(attacker.Power, 1)
 		dice := roll(1, 20)
 		if dice >= chance || dice == 20 {
-			if !hasEffectOn(attacker.Effects, spell.Effect) {
+			if ok, _ := hasEffectOn(attacker.Effects, spell.Effect); !ok {
 				attacker.Effects = append(attacker.Effects, spell.Effect)
 				b.addText(fmt.Sprintf(spell.HitQuote, attacker.Name))
 			} else {
@@ -346,9 +367,9 @@ func (b *Battle) attackAction(weapon data.Item, attacker, defender *data.Charact
 	if dice >= check || dice == 20 {
 		if dice == 20 {
 			damage *= 2
-			b.addText(fmt.Sprintf(battleQuotes["attackcritical"], attacker.Name, weapon_name, damage))
+			b.addText(fmt.Sprintf(battleQuotes["attackcritical"], attacker.Name, weapon_name, damage, weapon.DamageType.String()))
 		} else {
-			b.addText(fmt.Sprintf(battleQuotes["attackhit"], attacker.Name, weapon_name, damage))
+			b.addText(fmt.Sprintf(battleQuotes["attackhit"], attacker.Name, weapon_name, damage, weapon.DamageType.String()))
 		}
 		damage = max(damage-armor, 0)
 		defender.CurrentHp -= damage
@@ -359,16 +380,22 @@ func (b *Battle) attackAction(weapon data.Item, attacker, defender *data.Charact
 
 func (b *Battle) checkDeath(char *data.Character, is_player bool) {
 	if char.CurrentHp <= 0 {
-		state := InProgress
-		winner := ""
-		if is_player {
-			state = Lose
-			winner = b.Monster.Name
+		if ok, i := hasEffectOn(char.Effects, data.NoDeath); ok {
+			char.CurrentHp = 1
+			char.Effects = append(char.Effects[:i], char.Effects[i+1:]...)
+			b.addText(fmt.Sprintf("The Reaper spared %s's life this once!", char.Name))
 		} else {
-			state = Win
-			winner = b.Player.Name
+			state := InProgress
+			winner := ""
+			if is_player {
+				state = Lose
+				winner = b.Monster.Name
+			} else {
+				state = Win
+				winner = b.Player.Name
+			}
+			b.endBattle(state, winner)
 		}
-		b.endBattle(state, winner)
 	}
 }
 
@@ -448,16 +475,16 @@ func hasDamageVulnerability(vulnerabilities []data.DamageType, damageType data.D
 	return false
 }
 
-func hasEffectOn(effects []data.BattleEffect, effect data.BattleEffect) bool {
+func hasEffectOn(effects []data.BattleEffect, effect data.BattleEffect) (bool, int) {
 	if len(effects) == 0 {
-		return false
+		return false, 0
 	}
-	for _, e := range effects {
+	for i, e := range effects {
 		if e == effect {
-			return true
+			return true, i
 		}
 	}
-	return false
+	return false, 0
 }
 
 func checkConditionAction(conditionCheck *ConditionCheck, conditions []data.ActiveCondition) {

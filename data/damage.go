@@ -3,9 +3,9 @@ package data
 type DamageType int
 
 const (
-	Slashing DamageType = iota
+	Bludgeoning DamageType = iota
+	Slashing
 	Piercing
-	Bludgeoning
 	Fire
 	Cold
 	Thunder
@@ -14,6 +14,26 @@ const (
 	Necrotic
 	Psychic
 )
+
+var damageTypeToString = map[DamageType]string{
+	Bludgeoning: "Bludgeoning",
+	Slashing:    "Slashing",
+	Piercing:    "Piercing",
+	Fire:        "Fire",
+	Cold:        "Cold",
+	Thunder:     "Thunder",
+	Earth:       "Earth",
+	Radiant:     "Radiant",
+	Necrotic:    "Necrotic",
+	Psychic:     "Necrotic",
+}
+
+func (dt DamageType) String() string {
+	if s, ok := damageTypeToString[dt]; ok {
+		return s
+	}
+	return "unknown"
+}
 
 type DamageResistance struct {
 	DamageType DamageType
