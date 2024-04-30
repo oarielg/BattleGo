@@ -328,11 +328,15 @@ func (b *Battle) runTurn(conditionCheck ConditionCheck) {
 }
 
 func (b *Battle) monsterSpellTurn(conditionCheck ConditionCheck) {
-	chosenSpell := pickSpell(b.Monster.Spells)
-	if chosenSpell.Name != "" {
-		b.spellTurn(conditionCheck, chosenSpell, &b.Monster, &b.Player)
-	} else {
+	if !conditionCheck.CanCast {
 		b.attackTurn(conditionCheck, &b.Monster, &b.Player)
+	} else {
+		chosenSpell := pickSpell(b.Monster.Spells)
+		if chosenSpell.Name != "" {
+			b.spellTurn(conditionCheck, chosenSpell, &b.Monster, &b.Player)
+		} else {
+			b.attackTurn(conditionCheck, &b.Monster, &b.Player)
+		}
 	}
 }
 
@@ -373,6 +377,26 @@ func (b *Battle) attackAction(weapon data.Item, attacker, defender *data.Charact
 		}
 		damage = max(damage-armor, 0)
 		defender.CurrentHp -= damage
+
+		if len(weapon.Enchantments) > 0 {
+			for _, e := range weapon.Enchantments {
+				en := data.Enchantments[e]
+				if en.Type == data.Imbuement {
+					if hasDamageImmunity(defender.Immunities, en.DamageType) {
+						b.addText(fmt.Sprintf(battleQuotes["attackextrafail"], attacker.Name, en.DamageType.String(), defender.Name))
+					} else {
+						resistance := hasDamageResistance(defender.Resistances, en.DamageType)
+						damage := roll(1, 3)
+						if hasDamageVulnerability(defender.Vulnerabilities, en.DamageType) {
+							damage += roll(1, 3)
+						}
+						damage = max((damage - resistance), 0)
+						defender.CurrentHp -= damage
+						b.addText(fmt.Sprintf(battleQuotes["attackextrahit"], attacker.Name, damage, en.DamageType.String()))
+					}
+				}
+			}
+		}
 	} else {
 		b.addText(fmt.Sprintf(battleQuotes["attackmiss"], attacker.Name, weapon_name))
 	}
