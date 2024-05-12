@@ -1,0 +1,71 @@
+{{ block "index" . }}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Battle</title>
+</head>
+<body>
+    <center>
+        <p>You are fighting <strong>{{ .MonsterName }}</strong></p>
+        <p>Monster HP: <strong>{{ .MonsterHP }}</strong></p>
+        <p>Your HP: <strong>{{ .PlayerHP }}</strong></p>
+        <hr>
+        {{ range $a := .BattleText }}
+            {{ $a }}<br>
+        {{ end }}
+        <hr>
+        {{ if eq .BattleState "0" }}
+            {{ template "fightendwin" . }}
+        {{ end }}
+
+        {{ if eq .BattleState "1" }}
+            {{ template "fightendlose" . }}
+        {{ end }}
+
+        {{ if eq .BattleState "2" }}
+            {{ template "form" . }}
+        {{ end }}
+
+        {{ if eq .BattleState "3" }}
+            {{ template "escaped" . }}
+        {{ end }}      
+    </center>
+</body>
+</html>
+{{ end }}
+
+{{ block "fightendwin" . }}
+    <strong>You have won!</strong><br>
+
+    Winner: <strong>{{ .Winner }}</strong><br><br><br>
+    <a href="/">[Continue]</a>
+{{ end }}
+
+{{ block "fightendlose" . }}
+    <strong>You have lost!</strong><br>
+
+    Winner: <strong>{{ .Winner }}</strong><br><br><br>
+    <a href="/">[Continue]</a>
+{{ end }}
+
+{{ block "form" . }}
+<form method="post" action="/">
+    <p><button type="submit" name="action" value="attack">Attack</button></p>
+    <p>
+        <select name="spellid">
+            {{ range $k, $v := .Spells }}
+                <option value="{{ $k }}">{{ $v }}</option> 
+            {{ end }}          
+        </select>
+        <button type="submit" name="action" value="spell">Cast Spell</button>
+    </p>
+    <p><button type="submit" name="action" value="run">Run</button></p>
+</form>
+{{ end }}
+
+{{ block "escaped" . }}
+<br><br>
+<a href="/">[Continue]</a>
+{{ end }}
